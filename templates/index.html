@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PostCraft AI — Turn one idea into posts worth sharing</title>
+<meta name="description" content="Create platform-ready content for LinkedIn, X, and Dev.to/Medium with the help of AI.">
+<meta name="theme-color" content="#faf9f7">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='9'%20fill='%234f46e5'/%3E%3Ctext%20x='16'%20y='23'%20font-size='19'%20text-anchor='middle'%20fill='%23ffffff'%20font-family='Segoe%20UI,Arial,sans-serif'%20font-weight='700'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<a class="skip-link" href="#create">Skip to the generator</a>
+
+<svg class="icon-sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-linkedin" viewBox="0 0 24 24">
+    <circle cx="6.2" cy="6.4" r="2.1"/>
+    <rect x="4.3" y="9.9" width="3.9" height="9.8" rx="0.6"/>
+    <path d="M11 9.9h3.7v1.5c.6-1 1.8-1.8 3.4-1.8 2.6 0 4.1 1.6 4.1 4.7v5.4h-3.9v-4.9c0-1.4-.5-2.3-1.7-2.3-1.1 0-1.7.8-1.7 2.3v4.9H11V9.9Z"/>
+  </symbol>
+  <symbol id="i-x" viewBox="0 0 24 24">
+    <path d="M17.2 3h3.3l-7.2 8.2L21.8 21h-6.6l-4.4-5.7L5.6 21H2.3l7.7-8.8L2.4 3H9l4 5.3L17.2 3Zm-1.2 16h1.8L8.1 4.9H6.2L16 19Z"/>
+  </symbol>
+  <symbol id="i-medium" viewBox="0 0 24 24">
+    <circle cx="6.4" cy="12" r="4.6"/>
+    <rect x="10.4" y="9.7" width="3.4" height="4.6" rx="1.2"/>
+    <circle cx="17.6" cy="12" r="2.1"/>
+  </symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24">
+    <rect x="9" y="9" width="12" height="12" rx="2.5"/>
+    <path d="M5.5 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v.5"/>
+  </symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6.5 9.5 17 4 11.5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24">
+    <path d="M12.5 20.5H21"/><path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L7.6 18.4 3 19.8l1.4-4.6L16.4 3.6Z"/>
+  </symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24">
+    <path d="M20.5 12a8.5 8.5 0 0 0-14.6-5.9L3 9"/><path d="M3 3.5V9h5.5"/>
+    <path d="M3.5 12a8.5 8.5 0 0 0 14.6 5.9L21 15"/><path d="M21 20.5V15h-5.5"/>
+  </symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M4.5 12h15"/><path d="m13 5.5 6.5 6.5-6.5 6.5"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24">
+    <path d="M21.5 12.5H17l-1.8 2.8H8.8L7 12.5H2.5"/>
+    <path d="M5.9 4.9 2.5 12.5v5a2 2 0 0 0 2 2h15a2 2 0 0 0 2-2v-5l-3.4-7.6a2 2 0 0 0-1.8-1.1H7.7a2 2 0 0 0-1.8 1.1Z"/>
+  </symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9.5 6 6 6-6"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18.5 5.5 5.5 18.5M5.5 5.5l13 13"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24">
+    <path d="M12 3v3.5M12 17.5V21M3 12h3.5M17.5 12H21M5.9 5.9l2.5 2.5M15.6 15.6l2.5 2.5M18.1 5.9l-2.5 2.5M8.4 15.6l-2.5 2.5"/>
+  </symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3 1.9"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24">
+    <path d="M12 3 21 7.5 12 12 3 7.5 12 3Z"/><path d="m3 12.5 9 4.5 9-4.5"/><path d="m3 16.8 9 4.5 9-4.5"/>
+  </symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10.5 13.5"/><path d="M21 3 14.3 21l-3.8-7.5L3 9.7 21 3Z"/></symbol>
+</svg>
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true">✦</span>
+      <span class="brand-text">PostCraft <span class="brand-ai">AI</span></span>
+    </a>
+
+    <nav class="nav" id="primary-nav" aria-label="Primary">
+      <a class="nav-link" href="#create">Create</a>
+      <a class="nav-link" href="#how-it-works">How It Works</a>
+      <a class="nav-link" href="#about">About</a>
+    </nav>
+
+    <a class="btn btn-primary btn-sm header-cta" href="#create">Start Creating</a>
+
+    <button class="nav-toggle" type="button" id="nav-toggle"
+            aria-expanded="false" aria-controls="primary-nav" aria-label="Open menu">
+      <svg class="icon nav-toggle-open" aria-hidden="true"><use href="#i-menu"></use></svg>
+      <svg class="icon nav-toggle-close" aria-hidden="true"><use href="#i-close"></use></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="container hero-inner">
+      <div class="hero-copy">
+        <p class="pill"><span class="pill-dot" aria-hidden="true"></span>AI writing assistant for creators</p>
+        <h1 class="hero-title">Turn one idea into <span class="text-accent">posts worth sharing.</span></h1>
+        <p class="lede">Create platform-ready content for LinkedIn, X, and Dev.to/Medium with the help of AI.</p>
+
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#create" data-scroll>
+            Start Creating
+            <svg class="icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+          </a>
+          <a class="btn btn-ghost" href="#how-it-works" data-scroll>See how it works</a>
+        </div>
+
+        <ul class="hero-facts">
+          <li>No sign-up</li>
+          <li>3 platforms</li>
+          <li>6 tones</li>
+        </ul>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="preview-stack">
+          <div class="preview-card" data-platform="linkedin">
+            <span class="preview-icon"><svg class="icon"><use href="#i-linkedin"></use></svg></span>
+            <span class="preview-lines"><i style="--w:88%"></i><i style="--w:70%"></i><i style="--w:54%"></i></span>
+          </div>
+          <div class="preview-card" data-platform="x">
+            <span class="preview-icon"><svg class="icon"><use href="#i-x"></use></svg></span>
+            <span class="preview-lines"><i style="--w:76%"></i><i style="--w:52%"></i></span>
+          </div>
+          <div class="preview-card" data-platform="medium">
+            <span class="preview-icon"><svg class="icon"><use href="#i-medium"></use></svg></span>
+            <span class="preview-lines"><i style="--w:92%"></i><i style="--w:82%"></i><i style="--w:64%"></i></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ GENERATOR ============ -->
+  <section class="section" id="create" aria-labelledby="create-title">
+    <div class="container container-narrow">
+      <div class="section-head">
+        <p class="eyebrow">Create</p>
+        <h2 class="section-title" id="create-title">Create your post</h2>
+        <p class="section-sub">Write it once, badly. PostCraft will shape it for every platform.</p>
+      </div>
+
+      <div class="card generator-card">
+        <form id="post-form" novalidate>
+
+          <!-- Idea -->
+          <div class="field">
+            <div class="field-head">
+              <label class="label" for="idea">What's on your mind?</label>
+              <span class="field-hint">Rough notes are fine.</span>
+            </div>
+            <textarea class="textarea" id="idea" name="idea" rows="7" maxlength="5000"
+                      placeholder="Share an idea, experience, event, achievement, or any content you want to turn into a post..."></textarea>
+            <div class="field-foot">
+              <span class="helper">Tip: the more context you add, the more natural the result.</span>
+              <span class="counter" id="char-count" aria-live="off">0 / 5000</span>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <!-- Platforms -->
+          <fieldset class="field">
+            <legend class="label">Where do you want to share?</legend>
+            <p class="helper field-hint">Choose one or more platforms.</p>
+
+            <div class="platform-grid">
+              <label class="platform-card is-selected" data-platform="linkedin">
+                <input type="checkbox" name="platforms" value="linkedin" checked>
+                <span class="platform-check" aria-hidden="true"><svg class="icon"><use href="#i-check"></use></svg></span>
+                <span class="platform-icon"><svg class="icon"><use href="#i-linkedin"></use></svg></span>
+                <span class="platform-text">
+                  <span class="platform-name">LinkedIn</span>
+                  <span class="platform-desc">Professional posts</span>
+                </span>
+              </label>
+
+              <label class="platform-card" data-platform="x">
+                <input type="checkbox" name="platforms" value="x">
+                <span class="platform-check" aria-hidden="true"><svg class="icon"><use href="#i-check"></use></svg></span>
+                <span class="platform-icon"><svg class="icon"><use href="#i-x"></use></svg></span>
+                <span class="platform-text">
+                  <span class="platform-name">X</span>
+                  <span class="platform-desc">Short and concise</span>
+                </span>
+              </label>
+
+              <label class="platform-card" data-platform="medium">
+                <input type="checkbox" name="platforms" value="medium">
+                <span class="platform-check" aria-hidden="true"><svg class="icon"><use href="#i-check"></use></svg></span>
+                <span class="platform-icon"><svg class="icon"><use href="#i-medium"></use></svg></span>
+                <span class="platform-text">
+                  <span class="platform-name">Dev.to / Medium</span>
+                  <span class="platform-desc">Article introduction</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <hr class="divider">
+
+          <!-- Tone -->
+          <fieldset class="field">
+            <legend class="label">Choose your tone</legend>
+            <div class="tone-group">
+              <label class="tone-chip is-selected" data-tone="Professional">
+                <input type="radio" name="tone" value="Professional" checked><span>Professional</span>
+              </label>
+              <label class="tone-chip" data-tone="Casual">
+                <input type="radio" name="tone" value="Casual"><span>Casual</span>
+              </label>
+              <label class="tone-chip" data-tone="Friendly">
+                <input type="radio" name="tone" value="Friendly"><span>Friendly</span>
+              </label>
+              <label class="tone-chip" data-tone="Storytelling">
+                <input type="radio" name="tone" value="Storytelling"><span>Storytelling</span>
+              </label>
+              <label class="tone-chip" data-tone="Educational">
+                <input type="radio" name="tone" value="Educational"><span>Educational</span>
+              </label>
+              <label class="tone-chip" data-tone="Motivational">
+                <input type="radio" name="tone" value="Motivational"><span>Motivational</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="generator-actions">
+            <button class="btn btn-primary btn-generate" type="submit" id="generate-btn">
+              <span class="btn-face btn-face-idle"><span aria-hidden="true">✦</span> Generate Posts</span>
+              <span class="btn-face btn-face-busy"><span class="spinner" aria-hidden="true"></span> Crafting your posts…</span>
+            </button>
+            <p class="form-error" id="form-error" role="alert" hidden></p>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section class="section section-results" id="results" aria-labelledby="results-title">
+    <div class="container">
+      <div class="results-head">
+        <div>
+          <p class="eyebrow">Results</p>
+          <h2 class="section-title" id="results-title">Your generated posts</h2>
+          <p class="section-sub" id="results-sub">Review, tweak, then copy and paste wherever you post.</p>
+        </div>
+        <button class="btn btn-soft btn-sm" type="button" id="copy-all" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-copy"></use></svg>
+          <span>Copy all</span>
+        </button>
+      </div>
+
+      <div class="results-list" id="results-list" aria-live="polite" aria-busy="false"></div>
+
+      <div class="results-empty" id="results-empty">
+        <svg class="icon results-empty-icon" aria-hidden="true"><use href="#i-inbox"></use></svg>
+        <p>Your generated posts will appear here.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ HOW IT WORKS ============ -->
+  <section class="section section-alt" id="how-it-works" aria-labelledby="how-title">
+    <div class="container">
+      <div class="section-head section-head-center">
+        <p class="eyebrow">How it works</p>
+        <h2 class="section-title" id="how-title">Three steps, about a minute</h2>
+        <p class="section-sub">No prompts to learn, no settings to configure.</p>
+      </div>
+
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num">01</span>
+          <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg></span>
+          <h3 class="step-title">Share your idea</h3>
+          <p class="step-text">Give PostCraft your raw thoughts or content. Bullets, voice notes typed out, a messy brain dump — all fine.</p>
+        </li>
+        <li class="step">
+          <span class="step-num">02</span>
+          <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#i-layers"></use></svg></span>
+          <h3 class="step-title">Choose your platforms</h3>
+          <p class="step-text">Select where you want to publish and pick the tone that sounds like you.</p>
+        </li>
+        <li class="step">
+          <span class="step-num">03</span>
+          <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></span>
+          <h3 class="step-title">Generate &amp; share</h3>
+          <p class="step-text">Get platform-ready content in seconds, then copy it straight into your scheduler or your feed.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============ ABOUT ============ -->
+  <section class="section" id="about" aria-labelledby="about-title">
+    <div class="container container-narrow">
+      <div class="card about-card">
+        <p class="eyebrow">About</p>
+        <h2 class="section-title" id="about-title">Made for people who post a lot and don't want to write it four times</h2>
+        <p class="about-text">PostCraft AI helps turn one piece of content into platform-specific social posts, saving time while keeping each version natural and relevant to its audience.</p>
+        <p class="about-text">A LinkedIn post should read like a LinkedIn post. A tweet should not be a paragraph. PostCraft handles the reshaping so you can stay focused on the idea, not the formatting.</p>
+        <ul class="about-chips">
+          <li><svg class="icon" aria-hidden="true"><use href="#i-clock"></use></svg>Seconds, not drafts</li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-sparkle"></use></svg>Six tones to match</li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-layers"></use></svg>Edit anything</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <span class="brand-text">PostCraft <span class="brand-ai">AI</span></span>
+      </a>
+      <p class="footer-tagline">One idea. Multiple possibilities.</p>
+    </div>
+    <nav class="footer-nav" aria-label="Footer">
+      <a href="#create">Create</a>
+      <a href="#how-it-works">How It Works</a>
+      <a href="#about">About</a>
+    </nav>
+  </div>
+</footer>
+
+<button class="to-top" type="button" id="to-top" aria-label="Back to top" hidden>
+  <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+</button>
+
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
