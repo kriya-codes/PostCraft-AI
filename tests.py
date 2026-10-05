@@ -41,6 +41,25 @@ from gemini_service import GeminiError
 # load_dotenv() at import time), so GEMINI_API_KEY is already in the environment.
 API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
 
+# Leak assertions run against this synthetic key instead of the real one, so
+# they exercise the actual "never echo the key" mechanism and pass identically
+# on a fresh clone that has no .env file. It is never sent anywhere.
+FAKE_API_KEY = "AIzaFakeTestKeyNeverUsed0123456789abcdefgh"
+
+
+def with_fake_key():
+    """Patch the environment so GEMINI_API_KEY is a known, inert value."""
+    return mock.patch.dict(os.environ, {"GEMINI_API_KEY": FAKE_API_KEY})
+
+
+def leak_probe():
+    """A guaranteed non-empty key value to assert is absent from output.
+
+    Asserting an absent empty string is meaningless ("" is in every string),
+    so fall back to the synthetic key when no real one is configured.
+    """
+    return API_KEY or FAKE_API_KEY
+
 
 # ---------------------------------------------------------------------------
 # Fakes for the Gemini SDK
@@ -179,14 +198,15 @@ class TestHealth(ApiTestCase):
         self.assertEqual(body["status"], "ok")
 
     def test_health_reports_configuration_without_revealing_it(self):
-        body = self.client.get("/api/health").get_json()
+        client = app.app.test_client()
+        with with_fake_key():
+            body = client.get("/api/health").get_json()
         # It says whether a key exists, never the key itself.
         self.assertIsInstance(body["gemini_configured"], bool)
         self.assertNotIn("GEMINI_API_KEY", body)
         self.assertNotIn("api_key", body)
-        if API_KEY:
-            self.assertTrue(body["gemini_configured"])
-            self.assertNotIn(API_KEY, str(body))
+        self.assertTrue(body["gemini_configured"])
+        self.assertNotIn(FAKE_API_KEY, str(body))
 
 
 class TestApiKeyIsNeverExposed(ApiTestCase):
@@ -202,24 +222,31 @@ class TestApiKeyIsNeverExposed(ApiTestCase):
                 "static/css/style.css": client.get("/static/css/style.css").get_data(as_text=True),
                 "static/js/script.js": client.get("/static/js/script.js").get_data(as_text=True),
             }
-        self.assertTrue(API_KEY, "GEMINI_API_KEY should be loaded from .env")
+        # A non-empty key to look for: the real one when configured, otherwise
+        # a synthetic stand-in. Never assert on an empty string.
+        key = API_KEY or FAKE_API_KEY
+        self.assertTrue(key)
 
         for name, text in surfaces.items():
-            self.assertNotIn(API_KEY, text, f"{name} leaks the API key")
+            self.assertNotIn(key, text, f"{name} leaks the API key")
             # Also catch the key without its exact casing/whitespace.
-            self.assertNotRegex(text, re.escape(API_KEY[:12]))
+            self.assertNotRegex(text, re.escape(key[:12]))
 
     def test_key_is_not_in_any_api_response(self):
         client = app.app.test_client()
-        responses = [
-            client.get("/api/health").get_data(as_text=True),
-            client.post(
-                "/api/generate", json={"content": "hello", "platforms": ["x"]}
-            ).get_data(as_text=True),
-            client.post("/api/generate", json={}).get_data(as_text=True),
-        ]
+        # Stub Gemini so this stays an offline test; the point is the shape of
+        # the responses, not live generation.
+        use_fake_gemini(self, [FakeResponse(text="A short post about the idea.")])
+        with with_fake_key():
+            responses = [
+                client.get("/api/health").get_data(as_text=True),
+                client.post(
+                    "/api/generate", json={"content": "hello", "platforms": ["x"]}
+                ).get_data(as_text=True),
+                client.post("/api/generate", json={}).get_data(as_text=True),
+            ]
         for text in responses:
-            self.assertNotIn(API_KEY, text, "An API response leaks the API key")
+            self.assertNotIn(FAKE_API_KEY, text, "An API response leaks the API key")
 
     def test_model_name_is_not_exposed(self):
         """The model is a server-side detail and stays out of responses too."""
@@ -338,7 +365,7 @@ class TestMissingApiKey(ApiTestCase):
         with mock.patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
             with self.assertRaises(gemini_service.MissingApiKeyError) as caught:
                 gemini_service.get_api_key()
-        self.assertNotIn(API_KEY, str(caught.exception))
+        self.assertNotIn(leak_probe(), str(caught.exception))
 
 
 class TestGeminiFailures(ApiTestCase):
@@ -384,7 +411,7 @@ class TestGeminiFailures(ApiTestCase):
         joined = "\n".join(logs.output)
         self.assertIn("UNAVAILABLE", joined)
         # Even the server log must not contain the key.
-        self.assertNotIn(API_KEY, joined)
+        self.assertNotIn(leak_probe(), joined)
 
 
 class TestInvalidResponses(ApiTestCase):
@@ -701,17 +728,19 @@ class TestClientConfiguration(ApiTestCase):
     def test_client_uses_the_key_from_the_environment(self):
         gemini_service.reset_client()
         self.addCleanup(gemini_service.reset_client)
-        with mock.patch.object(gemini_service.genai, "Client") as factory:
-            gemini_service.get_client()
+        with with_fake_key():
+            with mock.patch.object(gemini_service.genai, "Client") as factory:
+                gemini_service.get_client()
         _, kwargs = factory.call_args
-        self.assertEqual(kwargs["api_key"], API_KEY)
+        self.assertEqual(kwargs["api_key"], FAKE_API_KEY)
 
     def test_client_is_cached_between_calls(self):
         gemini_service.reset_client()
         self.addCleanup(gemini_service.reset_client)
-        with mock.patch.object(gemini_service.genai, "Client") as factory:
-            gemini_service.get_client()
-            gemini_service.get_client()
+        with with_fake_key():
+            with mock.patch.object(gemini_service.genai, "Client") as factory:
+                gemini_service.get_client()
+                gemini_service.get_client()
         self.assertEqual(factory.call_count, 1)
 
     def test_model_env_var_overrides_the_default(self):
@@ -796,7 +825,7 @@ class TestPartialPlatformFailure(ApiTestCase):
         self.assertNotIn("UNAVAILABLE", blob)
         self.assertNotIn("503", blob)
         self.assertNotIn("Traceback", blob)
-        self.assertNotIn(API_KEY, blob)
+        self.assertNotIn(leak_probe(), blob)
         # Only the shared safe message, plus a machine-readable code.
         self.assertEqual(
             failed["error"], "Unable to generate posts right now. Please try again."
@@ -893,7 +922,7 @@ class TestAllPlatformsFailing(ApiTestCase):
             content="A real idea.", platforms=["linkedin", "x", "medium"]
         ).get_json()
         self.assertNotIn("UNAVAILABLE", str(body))
-        self.assertNotIn(API_KEY, str(body))
+        self.assertNotIn(leak_probe(), str(body))
         self.assertNotIn("Traceback", str(body))
 
     def test_unexpected_exception_on_every_platform_is_controlled(self):
@@ -997,7 +1026,7 @@ class TestRegenerateEndpoint(ApiTestCase):
         self.assertFalse(body["result"]["success"])
         self.assertNotIn("UNAVAILABLE", str(body))
         self.assertNotIn("503", str(body))
-        self.assertNotIn(API_KEY, str(body))
+        self.assertNotIn(leak_probe(), str(body))
 
     def test_missing_key_is_reported(self):
         with mock.patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
@@ -1408,7 +1437,7 @@ class LiveGeminiTests(ApiTestCase):
 
     def test_live_response_never_contains_the_key(self):
         body = self.generate(content=LIVE_IDEA, platforms=["x"]).get_json()
-        self.assertNotIn(API_KEY, str(body))
+        self.assertNotIn(leak_probe(), str(body))
 
 
 if __name__ == "__main__":
