@@ -5,8 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PostCraft AI — Turn one idea into posts worth sharing</title>
 <meta name="description" content="Create platform-ready content for LinkedIn, X, and Dev.to/Medium with the help of AI.">
-<meta name="theme-color" content="#faf9f7">
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='9'%20fill='%234f46e5'/%3E%3Ctext%20x='16'%20y='23'%20font-size='19'%20text-anchor='middle'%20fill='%23ffffff'%20font-family='Segoe%20UI,Arial,sans-serif'%20font-weight='700'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#fdfbf7">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='0'%20x2='1'%20y2='1'%3E%3Cstop%20offset='0'%20stop-color='%234f46e5'/%3E%3Cstop%20offset='.55'%20stop-color='%237c3aed'/%3E%3Cstop%20offset='1'%20stop-color='%23db2777'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width='32'%20height='32'%20rx='9'%20fill='url(%23g)'/%3E%3Ctext%20x='16'%20y='23'%20font-size='19'%20text-anchor='middle'%20fill='%23ffffff'%20font-family='Segoe%20UI,Arial,sans-serif'%20font-weight='700'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,600;1,9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
@@ -83,6 +86,12 @@
 
   <!-- ============ HERO ============ -->
   <section class="hero">
+    <div class="hero-decor" aria-hidden="true">
+      <span class="hero-blob hero-blob-a"></span>
+      <span class="hero-blob hero-blob-b"></span>
+      <span class="hero-ring hero-ring-a"></span>
+      <span class="hero-ring hero-ring-b"></span>
+    </div>
     <div class="container hero-inner">
       <div class="hero-copy">
         <p class="pill"><span class="pill-dot" aria-hidden="true"></span>AI writing assistant for creators</p>
@@ -98,26 +107,40 @@
         </div>
 
         <ul class="hero-facts">
-          <li>No sign-up</li>
-          <li>3 platforms</li>
-          <li>6 tones</li>
+          <li><span class="fact-check" aria-hidden="true"><svg class="icon"><use href="#i-check"></use></svg></span>No sign-up</li>
+          <li><span class="fact-check" aria-hidden="true"><svg class="icon"><use href="#i-check"></use></svg></span>3 platforms</li>
+          <li><span class="fact-check" aria-hidden="true"><svg class="icon"><use href="#i-check"></use></svg></span>6 tones</li>
         </ul>
       </div>
 
       <div class="hero-visual" aria-hidden="true">
         <div class="preview-stack">
           <div class="preview-card" data-platform="linkedin">
-            <span class="preview-icon"><svg class="icon"><use href="#i-linkedin"></use></svg></span>
+            <div class="preview-top">
+              <span class="preview-icon"><svg class="icon"><use href="#i-linkedin"></use></svg></span>
+              <span class="preview-meta"><i class="pm-strong"></i><i class="pm-weak"></i></span>
+            </div>
             <span class="preview-lines"><i style="--w:88%"></i><i style="--w:70%"></i><i style="--w:54%"></i></span>
+            <div class="preview-foot"><span class="preview-tag">Professional tone</span></div>
           </div>
           <div class="preview-card" data-platform="x">
-            <span class="preview-icon"><svg class="icon"><use href="#i-x"></use></svg></span>
+            <div class="preview-top">
+              <span class="preview-icon"><svg class="icon"><use href="#i-x"></use></svg></span>
+              <span class="preview-meta"><i class="pm-strong"></i><i class="pm-weak"></i></span>
+            </div>
             <span class="preview-lines"><i style="--w:76%"></i><i style="--w:52%"></i></span>
+            <div class="preview-foot"><span class="preview-tag">280-char fit</span></div>
           </div>
           <div class="preview-card" data-platform="medium">
-            <span class="preview-icon"><svg class="icon"><use href="#i-medium"></use></svg></span>
+            <div class="preview-top">
+              <span class="preview-icon"><svg class="icon"><use href="#i-medium"></use></svg></span>
+              <span class="preview-meta"><i class="pm-strong"></i><i class="pm-weak"></i></span>
+            </div>
             <span class="preview-lines"><i style="--w:92%"></i><i style="--w:82%"></i><i style="--w:64%"></i></span>
+            <div class="preview-foot"><span class="preview-tag">Article intro</span></div>
           </div>
+          <span class="float-chip float-chip-a"><span class="chip-glyph">✦</span> Ready in seconds</span>
+          <span class="float-chip float-chip-b"><span class="chip-glyph">✓</span> Fits every limit</span>
         </div>
       </div>
     </div>
@@ -126,13 +149,13 @@
   <!-- ============ GENERATOR ============ -->
   <section class="section" id="create" aria-labelledby="create-title">
     <div class="container container-narrow">
-      <div class="section-head">
+      <div class="section-head reveal">
         <p class="eyebrow">Create</p>
         <h2 class="section-title" id="create-title">Create your post</h2>
         <p class="section-sub">Write it once, badly. PostCraft will shape it for every platform.</p>
       </div>
 
-      <div class="card generator-card">
+      <div class="card generator-card reveal">
         <form id="post-form" novalidate>
 
           <!-- Idea -->
@@ -232,7 +255,7 @@
   <!-- ============ RESULTS ============ -->
   <section class="section section-results" id="results" aria-labelledby="results-title">
     <div class="container">
-      <div class="results-head">
+      <div class="results-head reveal">
         <div>
           <p class="eyebrow">Results</p>
           <h2 class="section-title" id="results-title">Your generated posts</h2>
@@ -246,9 +269,12 @@
 
       <div class="results-list" id="results-list" aria-live="polite" aria-busy="false"></div>
 
-      <div class="results-empty" id="results-empty">
-        <svg class="icon results-empty-icon" aria-hidden="true"><use href="#i-inbox"></use></svg>
-        <p>Your generated posts will appear here.</p>
+      <div class="results-empty reveal" id="results-empty">
+        <span class="results-empty-badge" aria-hidden="true">
+          <svg class="icon results-empty-icon"><use href="#i-inbox"></use></svg>
+        </span>
+        <p class="results-empty-title">Nothing here yet</p>
+        <p class="results-empty-hint">Write an idea above and hit Generate — your posts will land right here.</p>
       </div>
     </div>
   </section>
@@ -256,26 +282,26 @@
   <!-- ============ HOW IT WORKS ============ -->
   <section class="section section-alt" id="how-it-works" aria-labelledby="how-title">
     <div class="container">
-      <div class="section-head section-head-center">
+      <div class="section-head section-head-center reveal">
         <p class="eyebrow">How it works</p>
         <h2 class="section-title" id="how-title">Three steps, about a minute</h2>
         <p class="section-sub">No prompts to learn, no settings to configure.</p>
       </div>
 
       <ol class="steps">
-        <li class="step">
+        <li class="step reveal">
           <span class="step-num">01</span>
           <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg></span>
           <h3 class="step-title">Share your idea</h3>
           <p class="step-text">Give PostCraft your raw thoughts or content. Bullets, voice notes typed out, a messy brain dump — all fine.</p>
         </li>
-        <li class="step">
+        <li class="step reveal">
           <span class="step-num">02</span>
           <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#i-layers"></use></svg></span>
           <h3 class="step-title">Choose your platforms</h3>
           <p class="step-text">Select where you want to publish and pick the tone that sounds like you.</p>
         </li>
-        <li class="step">
+        <li class="step reveal">
           <span class="step-num">03</span>
           <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></span>
           <h3 class="step-title">Generate &amp; share</h3>
@@ -288,7 +314,8 @@
   <!-- ============ ABOUT ============ -->
   <section class="section" id="about" aria-labelledby="about-title">
     <div class="container container-narrow">
-      <div class="card about-card">
+      <div class="card about-card reveal">
+        <span class="about-quote" aria-hidden="true">“</span>
         <p class="eyebrow">About</p>
         <h2 class="section-title" id="about-title">Made for people who post a lot and don't want to write it four times</h2>
         <p class="about-text">PostCraft AI helps turn one piece of content into platform-specific social posts, saving time while keeping each version natural and relevant to its audience.</p>

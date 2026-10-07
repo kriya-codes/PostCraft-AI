@@ -771,3 +771,37 @@
   syncGroup('.platform-card', 'is-selected');
   syncGroup('.tone-chip', 'is-selected');
 })();
+
+/* ---------------------------------------------------------
+   16. Scroll reveals — progressive enhancement
+   ---------------------------------------------------------
+   .reveal-init is only added when IntersectionObserver exists, so the
+   page stays fully visible without JS. Once an entrance finishes, both
+   classes are stripped so hover transforms on the same element
+   (e.g. .step:hover) are not locked by the reveal rule.
+   --------------------------------------------------------- */
+(function () {
+  'use strict';
+
+  if (!('IntersectionObserver' in window)) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  var items = Array.prototype.slice.call(document.querySelectorAll('.reveal'));
+  if (!items.length) return;
+
+  items.forEach(function (el) { el.classList.add('reveal-init'); });
+
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      var el = entry.target;
+      observer.unobserve(el);
+      el.classList.add('is-in');
+      window.setTimeout(function () {
+        el.classList.remove('reveal-init', 'is-in');
+      }, 1200);
+    });
+  }, { rootMargin: '0px 0px -6% 0px', threshold: 0 });
+
+  items.forEach(function (el) { observer.observe(el); });
+})();
