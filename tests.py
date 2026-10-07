@@ -7,8 +7,9 @@ Two groups of tests live here:
    -----------------------
    Fake out the Gemini SDK, so the suite is fast, deterministic and free.
    They cover user input validation, a missing API key, Gemini API errors,
-   invalid/empty/blocked responses, the X 280-character enforcement
-   (including the second shortening attempt and the controlled failure),
+   invalid/empty/blocked responses, the one-request batched flow (structured
+   JSON for every selected platform in a single call), the X 280-character
+   enforcement (including the controlled failure with no rewrite request),
    character counting, platform-specific prompts, and the guarantee that the
    API key never reaches the frontend.
 
@@ -27,6 +28,7 @@ No extra packages are needed — this uses the Python standard library only.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import unittest
@@ -142,6 +144,11 @@ def api_error(code=503, message="UNAVAILABLE. High demand."):
     from google.genai import errors as genai_errors
 
     return genai_errors.APIError(code, {"error": {"code": code, "message": message}})
+
+
+def json_reply(payload: dict) -> FakeResponse:
+    """A Gemini reply carrying the structured JSON /api/generate expects."""
+    return FakeResponse(text=json.dumps(payload))
 
 
 _quota_state: dict = {}
@@ -476,12 +483,16 @@ class TestSuccessfulGeneration(ApiTestCase):
         self.assertEqual(body["tone"], "professional")
 
     def test_all_platforms_generate_one_result_each(self):
-        use_fake_gemini(
+        models = use_fake_gemini(
             self,
             [
-                FakeResponse(text="LinkedIn copy."),
-                FakeResponse(text="X copy."),
-                FakeResponse(text="Medium intro."),
+                json_reply(
+                    {
+                        "linkedin": "LinkedIn copy.",
+                        "x": "X copy.",
+                        "medium": "Medium intro.",
+                    }
+                )
             ],
         )
         body = self.generate(
@@ -496,6 +507,8 @@ class TestSuccessfulGeneration(ApiTestCase):
             [r["content"] for r in body["results"]],
             ["LinkedIn copy.", "X copy.", "Medium intro."],
         )
+        # All three came back from a single Gemini request.
+        self.assertEqual(len(models.prompts), 1)
 
     def test_devto_alias_maps_to_medium(self):
         """The spec's example payload uses "devto"."""
@@ -652,37 +665,31 @@ class TestXCharacterLimit(ApiTestCase):
         self.assertEqual(body["results"][0]["content"], text)
         self.assertEqual(len(models.prompts), 1, "no rewrite should be needed")
 
-    def test_over_280_triggers_a_second_shortening_call(self):
+    def test_over_280_fails_without_a_second_request(self):
         long_text = "B" * 400
-        short_text = "B" * 200
-        models = use_fake_gemini(
-            self, [FakeResponse(text=long_text), FakeResponse(text=short_text)]
-        )
-        body = self.generate(content="A real idea.", platforms=["x"]).get_json()
+        models = use_fake_gemini(self, [FakeResponse(text=long_text)])
+        response = self.generate(content="A real idea.", platforms=["x"])
 
-        result = body["results"][0]
-        self.assertEqual(result["content"], short_text)
-        self.assertEqual(len(models.prompts), 2)
-        self.assertIn("280", models.prompts[1])
-        self.assertIn(long_text, models.prompts[1])
+        self.assertEqual(response.status_code, 502)
+        body = response.get_json()
+        self.assertFalse(body["success"])
+        self.assertEqual(body["code"], "post_too_long")
+        self.assertEqual(len(models.prompts), 1, "no rewrite request is ever made")
 
     def test_over_280_is_never_silently_truncated(self):
-        """The returned text must be Gemini's own words, not a cut-off copy."""
+        """No cut-off copy of Gemini's own text is ever handed back."""
         long_text = "C" * 400
-        models = use_fake_gemini(
-            self, [FakeResponse(text=long_text), FakeResponse(text="D" * 120)]
-        )
-        body = self.generate(content="A real idea.", platforms=["x"]).get_json()
-        content = body["results"][0]["content"]
+        models = use_fake_gemini(self, [FakeResponse(text=long_text)])
+        response = self.generate(content="A real idea.", platforms=["x"])
+        blob = response.get_data(as_text=True)
 
-        self.assertEqual(content, "D" * 120)
-        self.assertNotEqual(content, long_text[:280])
-        self.assertFalse(content.endswith("..."))
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn(long_text[:280], blob)
+        self.assertNotIn(long_text, blob)
+        self.assertEqual(len(models.prompts), 1)
 
     def test_still_over_280_returns_a_controlled_error(self):
-        models = use_fake_gemini(
-            self, [FakeResponse(text="E" * 400), FakeResponse(text="F" * 350)]
-        )
+        models = use_fake_gemini(self, [FakeResponse(text="F" * 400)])
         response = self.generate(content="A real idea.", platforms=["x"])
 
         self.assertEqual(response.status_code, 502)
@@ -691,17 +698,14 @@ class TestXCharacterLimit(ApiTestCase):
         self.assertEqual(body["code"], "post_too_long")
         self.assertIn("280", body["error"])
         self.assertNotIn("results", body)
-        # Exactly two attempts — no infinite retry loop.
-        self.assertEqual(len(models.prompts), 2)
 
-    def test_rewrite_asks_for_the_limit_and_keeps_the_tone(self):
-        models = use_fake_gemini(
-            self, [FakeResponse(text="G" * 300), FakeResponse(text="H" * 100)]
-        )
+    def test_single_prompt_states_the_limit_and_keeps_the_tone(self):
+        models = use_fake_gemini(self, [FakeResponse(text="H" * 100)])
         self.generate(content="A real idea.", platforms=["x"], tone="motivational")
-        rewrite = models.prompts[1]
-        self.assertIn("280 characters or fewer", rewrite)
-        self.assertIn("same meaning and the same tone", rewrite)
+        prompt = models.prompts[0]
+        self.assertIn("280 characters or fewer", prompt)
+        self.assertIn(gemini_service.TONE_RULES["motivational"], prompt)
+        self.assertEqual(len(models.prompts), 1)
 
     def test_exactly_280_is_accepted(self):
         text = "I" * 280
@@ -763,20 +767,103 @@ class TestClientConfiguration(ApiTestCase):
 
 
 # ---------------------------------------------------------------------------
+# One request per /api/generate click, however many platforms are selected
+# ---------------------------------------------------------------------------
+
+
+class TestSingleRequestGeneration(ApiTestCase):
+    """Every selected platform comes back from a single Gemini request."""
+
+    def test_three_platforms_cost_one_request(self):
+        models = use_fake_gemini(
+            self,
+            [
+                json_reply(
+                    {
+                        "linkedin": "LinkedIn copy.",
+                        "x": "X copy.",
+                        "medium": "Medium intro.",
+                    }
+                )
+            ],
+        )
+        response = self.generate(
+            content="A real idea.", platforms=["linkedin", "x", "medium"]
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()["results"]), 3)
+        self.assertEqual(len(models.prompts), 1)
+
+    def test_the_single_request_asks_for_structured_json(self):
+        models = use_fake_gemini(self, [json_reply({"linkedin": "Copy."})])
+        self.generate(content="A real idea.", platforms=["linkedin", "x"])
+
+        config = models.configs[0]
+        self.assertEqual(config.response_mime_type, "application/json")
+        self.assertIsNotNone(config.response_schema)
+
+    def test_the_prompt_covers_every_selected_platform(self):
+        models = use_fake_gemini(
+            self, [json_reply({"linkedin": "a", "x": "b", "medium": "c"})]
+        )
+        self.generate(content="A real idea.", platforms=["linkedin", "x", "medium"])
+        prompt = models.prompts[0]
+        for marker in (
+            "Platform: LinkedIn",
+            "Platform: X (formerly Twitter)",
+            "Platform: Dev.to / Medium",
+        ):
+            self.assertIn(marker, prompt)
+        self.assertIn("A real idea.", prompt)
+        self.assertIn(gemini_service.TONE_RULES["professional"], prompt)
+
+    def test_the_regenerate_variant_reaches_the_batched_prompt(self):
+        models = use_fake_gemini(self, [json_reply({"linkedin": "Copy."})])
+        self.generate(content="A real idea.", platforms=["linkedin"], variant=2)
+        self.assertIn("regeneration", models.prompts[0].lower())
+
+    def test_malformed_json_returns_a_controlled_error(self):
+        models = use_fake_gemini(
+            self, [FakeResponse(text='{"linkedin": "Copy.", oops')]
+        )
+        response = self.generate(content="A real idea.", platforms=["linkedin", "x"])
+
+        self.assertEqual(response.status_code, 502)
+        body = response.get_json()
+        self.assertEqual(body["code"], "invalid_response")
+        self.assertNotIn("results", body)
+        self.assertEqual(len(models.prompts), 1)
+
+    def test_a_non_json_multi_platform_reply_is_rejected(self):
+        use_fake_gemini(self, [FakeResponse(text="One post with no structure.")])
+        response = self.generate(content="A real idea.", platforms=["linkedin", "x"])
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.get_json()["code"], "invalid_response")
+
+    def test_a_plain_text_reply_is_accepted_for_one_platform(self):
+        """Defence in depth: a schema-ignoring reply still becomes the post."""
+        use_fake_gemini(self, [FakeResponse(text="Just the post.")])
+        body = self.generate(content="A real idea.", platforms=["linkedin"]).get_json()
+        self.assertEqual(body["results"][0]["content"], "Just the post.")
+
+
+# ---------------------------------------------------------------------------
 # Partial results: one platform failing must not lose the others
 # ---------------------------------------------------------------------------
 
 
 class TestPartialPlatformFailure(ApiTestCase):
-    """A single Gemini hiccup should never wipe out posts that worked."""
+    """One platform missing from the reply must never wipe out the others."""
 
     def test_one_failure_keeps_the_other_two(self):
         use_fake_gemini(
             self,
             [
-                FakeResponse(text="LinkedIn copy."),
-                api_error(503),
-                FakeResponse(text="Medium intro."),
+                json_reply(
+                    {"linkedin": "LinkedIn copy.", "medium": "Medium intro."}
+                )
             ],
         )
         response = self.generate(
@@ -801,8 +888,9 @@ class TestPartialPlatformFailure(ApiTestCase):
         self.assertNotIn("content", failed)
 
     def test_results_keep_the_requested_platform_order(self):
+        # The reply's own key order is irrelevant; the request decides.
         use_fake_gemini(
-            self, [FakeResponse(text="a"), api_error(503), FakeResponse(text="b")]
+            self, [json_reply({"medium": "b", "x": "y", "linkedin": "a"})]
         )
         body = self.generate(
             content="A real idea.", platforms=["linkedin", "x", "medium"]
@@ -813,9 +901,7 @@ class TestPartialPlatformFailure(ApiTestCase):
         self.assertEqual(body["platforms"], ["linkedin", "x", "medium"])
 
     def test_failed_result_never_leaks_gemini_details(self):
-        use_fake_gemini(
-            self, [FakeResponse(text="a"), api_error(503, "UNAVAILABLE. High demand.")]
-        )
+        use_fake_gemini(self, [json_reply({"linkedin": "a"})])
         body = self.generate(
             content="A real idea.", platforms=["linkedin", "x"]
         ).get_json()
@@ -828,19 +914,17 @@ class TestPartialPlatformFailure(ApiTestCase):
         self.assertNotIn(leak_probe(), blob)
         # Only the shared safe message, plus a machine-readable code.
         self.assertEqual(
-            failed["error"], "Unable to generate posts right now. Please try again."
+            failed["error"],
+            "The assistant returned an unusable response. Please try again.",
         )
-        self.assertEqual(failed["code"], "generation_failed")
+        self.assertEqual(failed["code"], "invalid_response")
 
     def test_failed_result_still_carries_platform_metadata(self):
         """The frontend needs the id, name and limit to build the card."""
-        use_fake_gemini(self, [api_error(503)])
-        body = self.generate(content="A real idea.", platforms=["x"]).get_json()
-        failed = body["results"][0] if body.get("results") else None
-        # Single failing platform means the whole request failed (see below),
-        # so use a two-platform request to get a mixed body.
-        use_fake_gemini(self, [FakeResponse(text="ok"), api_error(503)])
-        body = self.generate(content="A real idea.", platforms=["linkedin", "x"]).get_json()
+        use_fake_gemini(self, [json_reply({"linkedin": "ok"})])
+        body = self.generate(
+            content="A real idea.", platforms=["linkedin", "x"]
+        ).get_json()
         failed = [r for r in body["results"] if not r["success"]][0]
         self.assertEqual(failed["platform"], "x")
         self.assertEqual(failed["name"], "X")
@@ -851,11 +935,7 @@ class TestPartialPlatformFailure(ApiTestCase):
         too_long = "Z" * 400
         use_fake_gemini(
             self,
-            [
-                FakeResponse(text="LinkedIn copy."),
-                FakeResponse(text=too_long),
-                FakeResponse(text="still too long " * 30),
-            ],
+            [json_reply({"linkedin": "LinkedIn copy.", "x": too_long})],
         )
         body = self.generate(
             content="A real idea.", platforms=["linkedin", "x"]
@@ -879,22 +959,27 @@ class TestPartialPlatformFailure(ApiTestCase):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.get_json()["code"], "missing_api_key")
 
-    def test_a_failure_does_not_stop_later_platforms(self):
-        """Generation continues after a failure instead of aborting early."""
+    def test_a_bad_entry_stops_no_other_platform(self):
+        """A blank post for one platform never cancels the others."""
         models = use_fake_gemini(
-            self, [api_error(503), FakeResponse(text="Medium intro.")]
+            self,
+            [json_reply({"linkedin": "Copy.", "x": "   ", "medium": "Intro."})],
         )
         body = self.generate(
-            content="A real idea.", platforms=["linkedin", "medium"]
+            content="A real idea.", platforms=["linkedin", "x", "medium"]
         ).get_json()
-        # Both platforms were attempted.
-        self.assertEqual(len(models.prompts), 2)
-        self.assertTrue(body["results"][1]["success"])
+
+        # All three were handled by the one reply.
+        self.assertEqual(len(models.prompts), 1)
+        self.assertTrue(body["results"][0]["success"])
+        self.assertTrue(body["results"][2]["success"])
+        self.assertFalse(body["results"][1]["success"])
+        self.assertEqual(body["results"][1]["code"], "invalid_response")
 
 
 class TestAllPlatformsFailing(ApiTestCase):
     def test_all_failing_returns_an_error_response(self):
-        use_fake_gemini(self, [api_error(503), api_error(503), api_error(503)])
+        use_fake_gemini(self, [api_error(503)])
         response = self.generate(
             content="A real idea.", platforms=["linkedin", "x", "medium"]
         )
@@ -917,7 +1002,7 @@ class TestAllPlatformsFailing(ApiTestCase):
         self.assertEqual(response.get_json()["code"], "missing_api_key")
 
     def test_all_failing_never_leaks_internals(self):
-        use_fake_gemini(self, [api_error(503, "UNAVAILABLE.")] * 3)
+        use_fake_gemini(self, [api_error(503, "UNAVAILABLE.")])
         body = self.generate(
             content="A real idea.", platforms=["linkedin", "x", "medium"]
         ).get_json()
@@ -929,7 +1014,7 @@ class TestAllPlatformsFailing(ApiTestCase):
         def boom():
             raise ValueError("internal detail")
 
-        use_fake_gemini(self, [boom, boom])
+        use_fake_gemini(self, [boom])
         response = self.generate(content="A real idea.", platforms=["linkedin", "x"])
         self.assertEqual(response.status_code, 502)
         self.assertNotIn("internal detail", response.get_json()["error"])
@@ -988,20 +1073,17 @@ class TestRegenerateEndpoint(ApiTestCase):
                         self.assertNotIn(other_marker, models.prompts[0])
 
     def test_regenerated_x_stays_within_280_characters(self):
-        over = "Q" * 400
         under = "Q" * 240
-        use_fake_gemini(self, [FakeResponse(text=over), FakeResponse(text=under)])
+        models = use_fake_gemini(self, [FakeResponse(text=under)])
         body = self.regenerate(content="A real idea.", platform="x").get_json()
 
         result = body["result"]
-        self.assertLessEqual(len(result["content"]), 280)
         self.assertEqual(len(result["content"]), 240)
         self.assertTrue(result["within_limit"])
+        self.assertEqual(len(models.prompts), 1, "regenerate never calls twice")
 
     def test_x_still_too_long_returns_a_failed_result_card(self):
-        use_fake_gemini(
-            self, [FakeResponse(text="W" * 400), FakeResponse(text="V" * 300)]
-        )
+        models = use_fake_gemini(self, [FakeResponse(text="W" * 400)])
         response = self.regenerate(content="A real idea.", platform="x")
         self.assertEqual(response.status_code, 502)
         body = response.get_json()
@@ -1012,6 +1094,7 @@ class TestRegenerateEndpoint(ApiTestCase):
         self.assertFalse(body["result"]["success"])
         self.assertEqual(body["result"]["platform"], "x")
         self.assertNotIn("results", body)
+        self.assertEqual(len(models.prompts), 1, "no rewrite request is made")
 
     def test_api_failure_returns_a_safe_failed_result(self):
         use_fake_gemini(self, [api_error(503, "UNAVAILABLE. High demand.")])

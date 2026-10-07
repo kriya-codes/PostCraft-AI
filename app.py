@@ -7,9 +7,11 @@ Routes
 ------
 GET  /               -> renders templates/index.html
 GET  /api/health     -> liveness probe
-POST /api/generate   -> generates one post per selected platform
+POST /api/generate   -> every selected platform's post, one Gemini request
 
-/api/generate calls the real Gemini API through `gemini_service`. The key is
+/api/generate calls the real Gemini API through `gemini_service` in a single
+request per click: Gemini returns all of the selected platforms' posts as
+structured JSON. The key is
 read from GEMINI_API_KEY (loaded from .env with python-dotenv) and stays on
 the server: it is never sent to the browser, and neither is the model name.
 All Gemini logic (prompts, retries, SDK errors) lives in gemini_service.py.
@@ -371,33 +373,33 @@ def api_generate():
     variant = read_variant(payload)
 
     # --- generate ----------------------------------------------------------
-    # Each platform is generated on its own. If one of them fails the others
-    # are still returned, so a single Gemini hiccup never wipes out posts that
-    # were written successfully.
-    results = []
-    first_error = None
-
-    for platform_id in platform_ids:
-        try:
-            text = gemini_service.generate_platform_post(
-                content, platform_id, tone_id, variant
-            )
-            results.append(build_result(platform_id, text, variant))
-        except GeminiError as exc:
-            _log_gemini_error(exc)
-            first_error = first_error or exc
-            results.append(build_failed_result(platform_id, exc, variant))
-        except Exception:
-            logger.exception("Unexpected error while generating the %s post", platform_id)
-            exc = GeminiError(f"Unexpected error on platform '{platform_id}'")
-            first_error = first_error or exc
-            results.append(build_failed_result(platform_id, exc, variant))
-
-    # Nothing worked at all: this is a real failure of the whole request.
-    if not any(result["success"] for result in results):
-        return json_error(
-            first_error.user_message, first_error.status, first_error.code
+    # One Gemini request returns every selected platform's post as structured
+    # JSON, so the click costs a single API call however many platforms are
+    # picked. A platform the model missed, or an X post over 280 characters,
+    # fails on its own card while the others still render.
+    try:
+        posts, failures = gemini_service.generate_posts(
+            content, platform_ids, tone_id, variant
         )
+    except GeminiError as exc:
+        return _gemini_error_response(exc)
+    except Exception:
+        logger.exception("Unexpected error while generating posts")
+        return _gemini_error_response(
+            GeminiError("Unexpected error while generating posts")
+        )
+
+    results = []
+    for platform_id in platform_ids:
+        if platform_id in posts:
+            results.append(build_result(platform_id, posts[platform_id], variant))
+        else:
+            # generate_posts() guarantees a failure for every platform it
+            # leaves out; the fallback keeps the card builder total.
+            error = failures.get(platform_id) or GeminiError(
+                f"No post was generated for '{platform_id}'"
+            )
+            results.append(build_failed_result(platform_id, error, variant))
 
     body = {
         "success": True,

@@ -2,9 +2,11 @@
 PostCraft AI — Gemini generation service.
 
 A small, self-contained helper around the official Google GenAI SDK
-(`google-genai`). The Flask route in app.py only calls
-`generate_platform_post()`; every Gemini-specific detail (client, model,
-prompts, retries, error handling) lives here.
+(`google-genai`). The Flask routes in app.py call `generate_posts()` to get
+every selected platform's post from ONE Gemini request, and
+`generate_platform_post()` to regenerate a single card; every
+Gemini-specific detail (client, model, prompts, retries, error handling)
+lives here.
 
 Configuration (read from the environment, loaded from .env by app.py)
 ----------------------------------------------------------------------
@@ -18,6 +20,7 @@ message, while the technical detail is logged server-side only.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -39,8 +42,9 @@ DEFAULT_MODEL = "gemini-3.8-flash"
 # rejected rather than silently truncated.
 X_CHAR_LIMIT = 280
 
-# Longest post we ever ask Gemini for, so a runaway response is cheap.
-MAX_OUTPUT_TOKENS = 2048
+# Longest reply we ever ask Gemini for. One request now carries every
+# selected platform's post, so the budget has to fit the whole batch.
+MAX_OUTPUT_TOKENS = 4096
 
 # Transient Gemini errors (429 / 5xx) are retried with backoff by the SDK.
 RETRY_ATTEMPTS = 4
@@ -82,7 +86,7 @@ class InvalidResponseError(GeminiError):
 
 
 class TooLongForPlatformError(GeminiError):
-    """X output stayed above 280 characters after a shortening retry."""
+    """X output exceeded the 280-character limit."""
 
     code = "post_too_long"
     status = 502
@@ -95,15 +99,27 @@ class TooLongForPlatformError(GeminiError):
 
 # Shared rules. Kept identical for every platform so the AI behaviour
 # (preserve meaning, never invent facts, sound human) never drifts.
-BASE_RULES = """You are an experienced social media writer turning one rough idea into finished post copy.
+RULES_BODY = """You are an experienced social media writer turning one rough idea into finished post copy.
 
 Rules you must always follow:
 - Preserve the user's original meaning and every concrete detail they gave you.
 - Never invent achievements, statistics, numbers, dates, quotes, company or product names, job titles, events, or personal experiences. If a detail is not in the idea, it does not go in the post.
 - Improve clarity, structure and flow. You are polishing their idea, not replacing it with a different one.
 - Sound like a real person writing, not a brand bot. No "In today's fast-paced world", no "Let's dive in", no "this isn't just X, it's Y", no "game-changer", no "unlock/leverage/supercharge", no emoji spam, no stacked em-dashes, no motivational clichés.
-- Match the requested tone (see below). Tone changes word choice and rhythm, never the facts.
-- Output ONLY the post copy itself as plain text. No preamble, no labels like "LinkedIn post:", no explanations, no character or word counts, no markdown code fences, no surrounding quotation marks."""
+- Match the requested tone (see below). Tone changes word choice and rhythm, never the facts."""
+
+# Output rules: the single-platform prompt asks for plain text, the
+# batched all-platforms prompt asks for JSON instead.
+OUTPUT_RULE = """- Output ONLY the post copy itself as plain text. No preamble, no labels like "LinkedIn post:", no explanations, no character or word counts, no markdown code fences, no surrounding quotation marks."""
+
+BASE_RULES = RULES_BODY + "\n" + OUTPUT_RULE
+
+# What the batched prompt sends in place of OUTPUT_RULE: one JSON object
+# keyed by the requested platform ids, so every post arrives in one reply.
+JSON_OUTPUT_RULE = """Output format (replaces the plain-text instruction above):
+Return ONLY a valid JSON object, with no markdown fences and no other commentary.
+Each key is one of the requested platform ids, and its value is that platform's finished post as a single string.
+Example: {"linkedin": "...", "x": "...", "medium": "..."}"""
 
 # One block per platform, so each network gets genuinely different writing
 # instructions instead of the same generic prompt.
@@ -146,18 +162,6 @@ VARIANT_RULE = (
     "same meaning, details and tone."
 )
 
-X_REWRITE_PROMPT = """Rewrite this X post so the entire post, spaces and hashtags included, is {limit} characters or fewer.
-
-- Cut whole phrases and reword the rest. Keep the same meaning and the same tone.
-- Never end mid-sentence, never cut mid-word, and never use "..." to fake a fit.
-- Keep it natural and readable, not a list of keywords.
-- Output only the rewritten post as plain text, with no preamble, labels or quotes.
-
-Post to rewrite:
----
-{post}
----"""
-
 
 def build_generation_prompt(content: str, platform_id: str, tone_id: str, variant: int = 0) -> str:
     """Assemble the prompt for one platform from the shared + platform rules."""
@@ -172,6 +176,30 @@ def build_generation_prompt(content: str, platform_id: str, tone_id: str, varian
     ]
     if variant:
         sections.insert(2, VARIANT_RULE)
+    sections.append(f"User's idea:\n---\n{content}\n---")
+    return "\n\n".join(sections)
+
+
+def build_multi_platform_prompt(
+    content: str, platform_ids, tone_id: str, variant: int = 0
+) -> str:
+    """Assemble one prompt asking for every selected platform at once.
+
+    This is the only prompt /api/generate sends: a single Gemini request
+    returns all of the posts as one JSON object keyed by platform id.
+    """
+    sections = [
+        RULES_BODY,
+        JSON_OUTPUT_RULE,
+        f"Tone: {TONE_RULES.get(tone_id, TONE_RULES['professional'])}",
+    ]
+    if variant:
+        sections.append(VARIANT_RULE)
+    for platform_id in platform_ids:
+        platform_rules = PLATFORM_RULES.get(platform_id)
+        if not platform_rules:
+            raise ValueError(f"No prompt configured for platform '{platform_id}'")
+        sections.append(platform_rules)
     sections.append(f"User's idea:\n---\n{content}\n---")
     return "\n\n".join(sections)
 
@@ -276,28 +304,40 @@ def reset_client() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _config(temperature: float) -> types.GenerateContentConfig:
+def _config(
+    temperature: float, json_schema: types.Schema = None
+) -> types.GenerateContentConfig:
     """Generation settings shared by every call.
 
     Thinking is switched off: these are short copywriting tasks, so the
     model's reasoning tokens would only cost time and could eat into the
     output budget and leave us with a half-written post.
+
+    When `json_schema` is given the reply is requested as structured JSON
+    (response_mime_type + response_schema), which is how one request can
+    carry every platform's post.
     """
-    return types.GenerateContentConfig(
-        temperature=temperature,
-        top_p=0.95,
-        max_output_tokens=MAX_OUTPUT_TOKENS,
-        thinking_config=types.ThinkingConfig(thinking_budget=0),
-    )
+    kwargs: dict = {
+        "temperature": temperature,
+        "top_p": 0.95,
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
+        "thinking_config": types.ThinkingConfig(thinking_budget=0),
+    }
+    if json_schema is not None:
+        kwargs["response_mime_type"] = "application/json"
+        kwargs["response_schema"] = json_schema
+    return types.GenerateContentConfig(**kwargs)
 
 
-def _generate(prompt: str, temperature: float) -> str:
+def _generate(
+    prompt: str, temperature: float, json_schema: types.Schema = None
+) -> str:
     """Send one prompt to Gemini and return cleaned text."""
     model = get_model()
 
     try:
         response = get_client().models.generate_content(
-            model=model, contents=prompt, config=_config(temperature)
+            model=model, contents=prompt, config=_config(temperature, json_schema)
         )
     except genai_errors.APIError as exc:
         # APIError covers 4xx/5xx from Gemini. Never surface the SDK text.
@@ -312,12 +352,113 @@ def _generate(prompt: str, temperature: float) -> str:
     return _extract_text(response, model)
 
 
+def _posts_schema(platform_ids) -> types.Schema:
+    """Schema for the batched reply: one string property per platform."""
+    return types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            platform_id: types.Schema(
+                type=types.Type.STRING,
+                description=f"The finished {platform_id} post",
+            )
+            for platform_id in platform_ids
+        },
+        required=list(platform_ids),
+        property_ordering=list(platform_ids),
+    )
+
+
+def _split_posts_reply(text: str, platform_ids) -> tuple[dict, dict]:
+    """Turn the model's reply into per-platform posts.
+
+    Returns (posts, failures). A JSON object supplies each requested key; a
+    missing or blank key fails only that platform. A reply that is not JSON
+    at all is accepted only when a single platform was requested, where the
+    whole text unambiguously belongs to it.
+    """
+    posts: dict = {}
+    failures: dict = {}
+
+    if text.startswith("{") or text.startswith("["):
+        try:
+            payload = json.loads(text)
+        except ValueError as exc:
+            raise InvalidResponseError(f"response was not valid JSON ({exc})")
+        if not isinstance(payload, dict):
+            raise InvalidResponseError(
+                "response JSON was not an object of platform posts"
+            )
+        for platform_id in platform_ids:
+            value = payload.get(platform_id)
+            cleaned = _clean(value) if isinstance(value, str) else ""
+            if not cleaned:
+                failures[platform_id] = InvalidResponseError(
+                    f"response JSON has no usable '{platform_id}' post"
+                )
+            else:
+                posts[platform_id] = cleaned
+    elif len(platform_ids) == 1:
+        # Plain-text reply to a single-platform request: the whole text is
+        # that platform's post, wrappers and all.
+        cleaned = _clean(text)
+        if cleaned:
+            posts[platform_ids[0]] = cleaned
+        else:
+            failures[platform_ids[0]] = InvalidResponseError(
+                "response held no usable post text"
+            )
+    else:
+        raise InvalidResponseError(
+            "response was not the expected JSON object of platform posts"
+        )
+    return posts, failures
+
+
+def generate_posts(content: str, platform_ids, tone_id: str, variant: int = 0):
+    """Generate every selected platform's post in a single Gemini request.
+
+    Returns (posts, failures): `posts` maps platform id to cleaned post text
+    and `failures` maps platform id to the error that kept that platform
+    out. An X post over X_CHAR_LIMIT fails on its own — there is never a
+    second request and never a silent truncation.
+
+    Raises a GeminiError only when nothing was generated at all, so the API
+    layer can return one controlled error for the whole request.
+    """
+    prompt = build_multi_platform_prompt(content, platform_ids, tone_id, variant)
+    raw = _generate(
+        prompt,
+        temperature=0.9 if not variant else 1.0,
+        json_schema=_posts_schema(platform_ids),
+    )
+    posts, failures = _split_posts_reply(raw, platform_ids)
+
+    if "x" in posts and len(posts["x"]) > X_CHAR_LIMIT:
+        logger.warning(
+            "X post came back at %d chars, over the %d limit",
+            len(posts["x"]),
+            X_CHAR_LIMIT,
+        )
+        failures["x"] = TooLongForPlatformError(
+            f"X post is {len(posts['x'])} characters, limit is {X_CHAR_LIMIT}"
+        )
+        del posts["x"]
+
+    if not posts:
+        for platform_id in platform_ids:
+            failure = failures.get(platform_id)
+            if failure is not None:
+                raise failure
+        raise InvalidResponseError("Gemini returned no usable posts")
+    return posts, failures
+
+
 def generate_platform_post(content: str, platform_id: str, tone_id: str, variant: int = 0) -> str:
     """Generate one platform-optimised post for the user's idea.
 
-    X output is verified against the 280-character limit; if Gemini overshoots
-    we ask it once to rewrite shorter and, if that still fails, we raise
-    TooLongForPlatformError instead of returning invalid content.
+    A single Gemini request. X output is verified against the 280-character
+    limit; an over-limit post raises TooLongForPlatformError instead of
+    being truncated or rewritten in a second call.
     """
     post = _generate(
         build_generation_prompt(content, platform_id, tone_id, variant),
@@ -325,21 +466,10 @@ def generate_platform_post(content: str, platform_id: str, tone_id: str, variant
     )
 
     if platform_id == "x" and len(post) > X_CHAR_LIMIT:
-        logger.info(
-            "X post came back at %d chars, asking Gemini to shorten it",
-            len(post),
+        logger.warning(
+            "X post came back at %d chars (limit is %d)", len(post), X_CHAR_LIMIT
         )
-        shorter = _generate(
-            X_REWRITE_PROMPT.format(limit=X_CHAR_LIMIT, post=post),
-            temperature=0.4,
+        raise TooLongForPlatformError(
+            f"X post is {len(post)} characters, limit is {X_CHAR_LIMIT}"
         )
-        if len(shorter) > X_CHAR_LIMIT:
-            logger.warning(
-                "X post still too long after rewrite (%d chars)", len(shorter)
-            )
-            raise TooLongForPlatformError(
-                f"X post is {len(shorter)} characters, limit is {X_CHAR_LIMIT}"
-            )
-        post = shorter
-
     return post

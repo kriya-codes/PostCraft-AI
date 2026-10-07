@@ -12,10 +12,11 @@ idea for each one — then edit, copy, or regenerate any card individually.
 ## ✨ Features
 
 - **Multi-platform generation** — create posts for several platforms from one idea
+  in a **single Gemini request**, however many platforms you pick
 - **LinkedIn** posts with platform-appropriate length, structure, and hashtags
 - **X (Twitter)** posts held to a hard **280-character limit**
-  - If Gemini overshoots, the app automatically asks Gemini to shorten it once, then
-    verifies the result before returning it
+  - The limit is enforced on the reply before anything is shown: an over-limit
+    X post fails its own card instead of being silently truncated
 - **Dev.to / Medium** style content — a short blog-style introduction
 - **Six writing tones** — Professional, Casual, Friendly, Storytelling, Educational,
   Motivational
@@ -68,12 +69,13 @@ Edit / Copy / Regenerate
 ```
 
 In simple terms: the browser collects your idea, your chosen platforms, and your tone,
-then sends them to the Flask backend. The backend reads the API key from `.env`, asks
-Gemini to write a post for **each** selected platform using that platform's own prompt
-rules, and returns the results. The browser then shows one card per platform, where you
-can edit, copy, or regenerate that post on its own.
+then sends them to the Flask backend. The backend reads the API key from `.env` and asks
+Gemini, in **one request**, for every selected platform's post as structured JSON, each
+written with that platform's own prompt rules. The browser then shows one card per
+platform, where you can edit, copy, or regenerate that post on its own.
 
-Each platform is handled independently — one failure never cancels the others.
+Each platform is handled independently — a post that is missing, unusable, or over the
+X limit never cancels the others.
 
 ---
 
@@ -163,7 +165,7 @@ python -m unittest
 Expected result:
 
 ```text
-Ran 125 tests in ...
+Ran 132 tests in ...
 OK (skipped=7)
 ```
 
@@ -174,10 +176,12 @@ What the suite covers:
 
 - Input validation for every field
 - Successful generation and response shape
+- **One request per generation** — every selected platform's post comes back from a
+  single Gemini call, requested as structured JSON
 - **Partial platform failure** — one platform failing while others succeed
 - **All platforms failing** — a single controlled error, never a crash
 - The `/api/regenerate` endpoint, including failure and retry
-- The X 280-character limit and its shortening retry
+- The X 280-character limit, enforced in a single pass with no silent truncation
 - Per-platform prompt and tone rules
 - **Security and API-key exposure checks** — the suite asserts the key never appears in
   any HTML page, CSS/JS asset, API response, server log, or error message
